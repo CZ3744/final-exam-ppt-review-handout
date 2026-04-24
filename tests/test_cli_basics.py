@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from ppt_review_handout.cli import chapter_index, chinese_to_int, discover_pptx, safe_name
+from ppt_review_handout.cli_v2 import chapter_index, chinese_to_int, discover_pptx, safe_name
 
 
 def test_chinese_to_int():
@@ -29,3 +29,18 @@ def test_discover_supported_and_unsupported(tmp_path: Path):
     files, unsupported = discover_pptx(tmp_path)
     assert [p.name for p in files] == ["第一章 A.pptm", "第二章 B.pptx"]
     assert [p.name for p in unsupported] == ["旧版.ppt"]
+
+
+def test_discover_missing_path_is_tolerant(tmp_path: Path):
+    files, unsupported = discover_pptx(tmp_path / "missing")
+    assert files == []
+    assert unsupported == []
+
+
+def test_discover_recursive(tmp_path: Path):
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    (nested / "第三章 C.pptx").write_text("", encoding="utf-8")
+    files, unsupported = discover_pptx(tmp_path, recursive=True)
+    assert [p.name for p in files] == ["第三章 C.pptx"]
+    assert unsupported == []
