@@ -15,3 +15,5 @@ __pycache__/
 *.jpeg
 *.gif
 *.webp
+!examples/demo/**
+!docs/assets/**
