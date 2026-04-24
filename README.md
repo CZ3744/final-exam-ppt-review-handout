@@ -19,6 +19,8 @@
 - 可把所有 Word 打包成 zip。
 - 生成运行报告，说明处理了哪些文件、输出了哪些产物、有没有失败或警告。
 
+默认推荐使用 **review-margin 批注式讲义版式**：正文区域在左侧，右侧预留约四分之一空白批注区，中间用竖线隔开，方便打印后手写补充、复核图示页和标注重点。也可以通过 `--layout standard` 切换为普通满版讲义。
+
 最终目标是得到这种资料：
 
 ```text
@@ -47,7 +49,8 @@ https://github.com/CZ3744/final-exam-ppt-review-handout
 2. 你自己阅读提取结果并整理成期末复习讲义；
 3. 再导出每章 Word 和 PDF；
 4. 输出到：<你的输出目录>；
-5. 完成后检查 report.md，并把结果路径告诉我。
+5. 默认使用推荐的 review-margin 批注式讲义版式；
+6. 完成后检查 report.md，并把结果路径告诉我。
 
 注意：不要机械逐页复制 PPT，要按考前复习逻辑整理成知识点大纲、名词解释、对比表、流程、易考点和速记总结。
 ```
@@ -68,7 +71,8 @@ https://github.com/CZ3744/final-exam-ppt-review-handout
 - 老师发了一整套课程 PPT；
 - 想把 PPT 变成复习大纲、知识点讲义、Word/PDF；
 - 不想一页一页手动复制文字；
-- 想让 AI 帮你理解、提炼和排版。
+- 想让 AI 帮你理解、提炼和排版；
+- 想得到方便打印批注的复习讲义版式。
 
 不适合：
 
@@ -128,7 +132,7 @@ workspace/extracted/*.slides.json
 workspace/analysis/*.handout.json
 ```
 
-最后渲染：
+最后渲染，默认就是推荐的批注式讲义版式：
 
 ```bash
 python -m ppt_review_handout.cli render \
@@ -136,6 +140,17 @@ python -m ppt_review_handout.cli render \
   --output ./outputs \
   --export-pdf \
   --zip-word
+```
+
+如果需要普通满版讲义：
+
+```bash
+python -m ppt_review_handout.cli render \
+  --analysis ./workspace/analysis \
+  --output ./outputs \
+  --export-pdf \
+  --zip-word \
+  --layout standard
 ```
 
 PDF 导出需要本机安装 LibreOffice 或 soffice。没有 PDF 环境时，Word 仍然可以生成，报告会写明原因。
