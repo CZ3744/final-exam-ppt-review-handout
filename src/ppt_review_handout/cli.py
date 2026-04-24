@@ -11,6 +11,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from docx import Document
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
 from pptx import Presentation
@@ -20,6 +21,7 @@ CN_DIGITS = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 
 CN_UNITS = {"十": 10, "百": 100, "千": 1000}
 SUPPORTED_SUFFIXES = {".pptx", ".pptm"}
 UNSUPPORTED_SUFFIXES = {".ppt"}
+LAYOUT_CHOICES = ("review-margin", "standard")
 BOILERPLATE = [
     r"^PowerPoint Template$",
     r"^单击此处编辑母版文本样式$",
@@ -64,11 +66,7 @@ def chapter_index(name: str) -> int:
 
 
 def discover_pptx(path: Path) -> tuple[list[Path], list[Path]]:
-    """Return supported PPTX-like files and unsupported legacy PPT files.
-
-    python-pptx cannot parse old binary .ppt files. We surface them as warnings
-    instead of silently failing or pretending they were processed.
-    """
+    """Return supported PPTX-like files and unsupported legacy PPT files."""
     if path.is_file():
         if path.suffix.lower() in SUPPORTED_SUFFIXES:
             return [path], []
@@ -300,10 +298,18 @@ def set_font(run, east_asia="宋体", size=10.5, bold=None):
         run.bold = bold
 
 
-def setup_doc() -> Document:
+def setup_doc(layout: str = "review-margin") -> Document:
     doc = Document()
     sec = doc.sections[0]
-    sec.top_margin = sec.bottom_margin = sec.left_margin = sec.right_margin = Cm(1.8)
+    sec.page_width = Cm(21)
+    sec.page_height = Cm(29.7)
+    if layout == "review-margin":
+        sec.top_margin = Cm(1.5)
+        sec.bottom_margin = Cm(1.5)
+        sec.left_margin = Cm(1.4)
+        sec.right_margin = Cm(1.4)
+    else:
+        sec.top_margin = sec.bottom_margin = sec.left_margin = sec.right_margin = Cm(1.8)
     styles = doc.styles
     styles["Normal"].font.size = Pt(10.5)
     styles["Normal"]._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
@@ -315,31 +321,96 @@ def setup_doc() -> Document:
     return doc
 
 
-def add_title(doc: Document, title: str):
-    p = doc.add_paragraph()
+def set_cell_border(cell, **edges):
+    """Set cell borders. Example: set_cell_border(cell, end={...})."""
+    tc = cell._tc
+    tc_pr = tc.get_or_add_tcPr()
+    tc_borders = tc_pr.find(qn("w:tcBorders"))
+    if tc_borders is None:
+        tc_borders = OxmlElement("w:tcBorders")
+        tc_pr.append(tc_borders)
+    for edge in ("top", "start", "bottom", "end", "insideH", "insideV"):
+        attrs = edges.get(edge)
+        if attrs is None:
+            continue
+        tag = "w:" + edge
+        element = tc_borders.find(qn(tag))
+        if element is None:
+            element = OxmlElement(tag)
+            tc_borders.append(element)
+        for key, value in attrs.items():
+            element.set(qn("w:" + key), str(value))
+
+
+def prepare_content_target(doc: Document, layout: str):
+    """Return the object where handout content should be written.
+
+    review-margin uses a two-column invisible table: the left column holds the
+    review handout and the right column is intentionally blank for notes. A thin
+    vertical border separates the two areas, matching a print-friendly study layout.
+    """
+    if layout == "standard":
+        return doc
+    table = doc.add_table(rows=1, cols=2)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.style = "Table Grid"
+    try:
+        table.autofit = False
+    except Exception:
+        pass
+    left = table.cell(0, 0)
+    right = table.cell(0, 1)
+    left.width = Cm(12.7)
+    right.width = Cm(4.2)
+    for row in table.rows:
+        row.cells[0].width = Cm(12.7)
+        row.cells[1].width = Cm(4.2)
+    nil = {"val": "nil"}
+    line = {"val": "single", "sz": "8", "space": "0", "color": "BFBFBF"}
+    for cell in (left, right):
+        set_cell_border(cell, top=nil, start=nil, bottom=nil, end=nil)
+    set_cell_border(left, end=line)
+    if right.paragraphs:
+        p = right.paragraphs[0]
+        r = p.add_run("批注区")
+        set_font(r, "宋体", 8)
+        r.font.color.rgb = None
+    return left
+
+
+def add_heading(target, text: str, level: int = 1):
+    if hasattr(target, "add_heading"):
+        return target.add_heading(text, level=level)
+    p = target.add_paragraph(style=f"Heading {level}")
+    p.add_run(text)
+    return p
+
+
+def add_title(target, title: str):
+    p = target.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     r = p.add_run(title)
     set_font(r, "黑体", 18, True)
-    p2 = doc.add_paragraph()
+    p2 = target.add_paragraph()
     p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
     r2 = p2.add_run("考前复习讲义版")
     set_font(r2, "黑体", 12, True)
 
 
-def add_bullets(doc: Document, items, style="List Bullet"):
+def add_bullets(target, items, style="List Bullet"):
     for item in items or []:
         if item:
-            p = doc.add_paragraph(style=style)
+            p = target.add_paragraph(style=style)
             r = p.add_run(str(item))
             set_font(r)
 
 
-def add_table(doc: Document, title: str, headers: list[str], rows: list[list[str]]):
+def add_table(target, title: str, headers: list[str], rows: list[list[str]]):
     if not rows:
         return
-    doc.add_heading(title or "对比表", level=3)
+    add_heading(target, title or "对比表", level=3)
     width = max(len(headers), max((len(r) for r in rows), default=0), 1)
-    table = doc.add_table(rows=1, cols=width)
+    table = target.add_table(rows=1, cols=width)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     table.style = "Table Grid"
     for i in range(width):
@@ -351,54 +422,55 @@ def add_table(doc: Document, title: str, headers: list[str], rows: list[list[str
             cells[i].text = row[i] if i < len(row) else ""
 
 
-def handout_to_docx(handout: dict, path: Path):
-    doc = setup_doc()
-    add_title(doc, handout.get("chapter_title", "未命名章节"))
-    meta = doc.add_paragraph()
-    r = meta.add_run(f"来源文件：{Path(handout.get('source_file', '')).name}；PPT 页数：{handout.get('slide_count', 0)} 页")
+def handout_to_docx(handout: dict, path: Path, layout: str = "review-margin"):
+    doc = setup_doc(layout)
+    target = prepare_content_target(doc, layout)
+    add_title(target, handout.get("chapter_title", "未命名章节"))
+    meta = target.add_paragraph()
+    r = meta.add_run(f"来源文件：{Path(handout.get('source_file', '')).name}；PPT 页数：{handout.get('slide_count', 0)} 页；版式：{layout}")
     set_font(r, size=9)
     sections = [
         ("一、本章复习目标", handout.get("review_goals", [])),
         ("二、本章知识框架", handout.get("knowledge_framework", [])),
     ]
     for title, items in sections:
-        doc.add_heading(title, level=1)
-        add_bullets(doc, items)
-    doc.add_heading("三、核心知识点整理", level=1)
+        add_heading(target, title, level=1)
+        add_bullets(target, items)
+    add_heading(target, "三、核心知识点整理", level=1)
     for title, points in (handout.get("core_points") or {}).items():
-        doc.add_heading(title, level=2)
-        add_bullets(doc, points)
-    doc.add_heading("四、重要概念与名词解释", level=1)
+        add_heading(target, title, level=2)
+        add_bullets(target, points)
+    add_heading(target, "四、重要概念与名词解释", level=1)
     terms = handout.get("terms") or {}
     if terms:
         for term, definition in terms.items():
-            p = doc.add_paragraph()
+            p = target.add_paragraph()
             r1 = p.add_run(f"{term}：")
             set_font(r1, "黑体", 10.5, True)
             r2 = p.add_run(str(definition))
             set_font(r2)
     else:
-        add_bullets(doc, ["本章未提供单独术语解释，可结合核心知识点复习。"])
-    doc.add_heading("五、分类、对比与表格", level=1)
+        add_bullets(target, ["本章未提供单独术语解释，可结合核心知识点复习。"])
+    add_heading(target, "五、分类、对比与表格", level=1)
     tables = handout.get("comparison_tables") or []
     if tables:
         for t in tables:
-            add_table(doc, t.get("title", "对比表"), t.get("headers", []), t.get("rows", []))
+            add_table(target, t.get("title", "对比表"), t.get("headers", []), t.get("rows", []))
     else:
-        add_bullets(doc, ["本章未提供对比表。"])
-    doc.add_heading("六、原理、机制与流程", level=1)
+        add_bullets(target, ["本章未提供对比表。"])
+    add_heading(target, "六、原理、机制与流程", level=1)
     for name, steps in (handout.get("processes") or {}).items():
-        doc.add_heading(name, level=2)
-        add_bullets(doc, steps, style="List Number")
-    doc.add_heading("七、易考点归纳", level=1)
-    add_bullets(doc, handout.get("exam_points", []))
-    doc.add_heading("八、易混淆点辨析", level=1)
-    add_bullets(doc, handout.get("confusing_points", []))
-    doc.add_heading("九、本章速记总结", level=1)
-    add_bullets(doc, handout.get("quick_summary", []))
+        add_heading(target, name, level=2)
+        add_bullets(target, steps, style="List Number")
+    add_heading(target, "七、易考点归纳", level=1)
+    add_bullets(target, handout.get("exam_points", []))
+    add_heading(target, "八、易混淆点辨析", level=1)
+    add_bullets(target, handout.get("confusing_points", []))
+    add_heading(target, "九、本章速记总结", level=1)
+    add_bullets(target, handout.get("quick_summary", []))
     if handout.get("image_heavy_slides"):
-        doc.add_heading("十、需复核的图片/图示页", level=1)
-        add_bullets(doc, [f"第 {i} 页图示信息较多，建议结合原 PPT 复核。" for i in handout["image_heavy_slides"]])
+        add_heading(target, "十、需复核的图片/图示页", level=1)
+        add_bullets(target, [f"第 {i} 页图示信息较多，建议结合原 PPT 复核。" for i in handout["image_heavy_slides"]])
     path.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(path))
 
@@ -429,12 +501,12 @@ def render_cmd(args) -> int:
         write_report(out, records)
         return 1
     for jf in files:
-        rec = {"source_file": str(jf), "chapter_title": jf.stem, "slide_count": 0, "warnings": [], "errors": []}
+        rec = {"source_file": str(jf), "chapter_title": jf.stem, "slide_count": 0, "warnings": [], "errors": [], "layout": args.layout}
         try:
             handout = json.loads(jf.read_text(encoding="utf-8"))
             stem = safe_name(handout.get("chapter_title", jf.stem))
             docx = out / "docx" / f"{stem}_复习讲义版.docx"
-            handout_to_docx(handout, docx)
+            handout_to_docx(handout, docx, layout=args.layout)
             rec.update({"chapter_title": handout.get("chapter_title", jf.stem), "slide_count": handout.get("slide_count", 0), "docx": str(docx)})
             if args.export_pdf:
                 pdf, warning = export_pdf(docx, out / "pdf")
@@ -542,12 +614,16 @@ def write_report(out: Path, records: list[dict]):
         "input_count": len(records),
         "docx_count": sum(1 for r in records if r.get("docx")),
         "pdf_count": sum(1 for r in records if r.get("pdf")),
+        "layouts": sorted(set(r.get("layout", "") for r in records if r.get("layout"))),
         "warnings": [w for r in records for w in r.get("warnings", [])],
         "errors": [e for r in records for e in r.get("errors", [])],
         "records": records,
     }
     (out / "report.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-    lines = ["# PPT Review Handout Report", "", f"- Inputs: {summary['input_count']}", f"- DOCX: {summary['docx_count']}", f"- PDF: {summary['pdf_count']}", ""]
+    lines = ["# PPT Review Handout Report", "", f"- Inputs: {summary['input_count']}", f"- DOCX: {summary['docx_count']}", f"- PDF: {summary['pdf_count']}"]
+    if summary["layouts"]:
+        lines.append(f"- Layout: {', '.join(summary['layouts'])}")
+    lines.append("")
     if summary["warnings"]:
         lines += ["## Warnings", ""] + [f"- {w}" for w in summary["warnings"]] + [""]
     if summary["errors"]:
@@ -570,6 +646,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--output", required=True)
     p.add_argument("--export-pdf", action="store_true")
     p.add_argument("--zip-word", action="store_true")
+    p.add_argument("--layout", choices=LAYOUT_CHOICES, default="review-margin", help="DOCX layout. review-margin is recommended for study notes and leaves a right-side annotation area.")
     p = sub.add_parser("build", help="One-pass fallback: extract, rule-analyze, render")
     p.add_argument("--input", required=True)
     p.add_argument("--output", required=True)
@@ -578,6 +655,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--keep-intermediate", action="store_true")
     p.add_argument("--export-pdf", action="store_true")
     p.add_argument("--zip-word", action="store_true")
+    p.add_argument("--layout", choices=LAYOUT_CHOICES, default="review-margin", help="DOCX layout. review-margin is recommended for study notes and leaves a right-side annotation area.")
     return parser
 
 
