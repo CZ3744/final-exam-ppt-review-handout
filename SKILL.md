@@ -19,7 +19,7 @@ metadata:
 
 Use this skill when the user wants to convert teacher-provided university course PPT/PPTX files into final-exam-oriented review outlines, Word handouts, and PDFs.
 
-This is an **LLM-orchestrated skill**. The skill does not call a model internally. You, the calling LLM, are responsible for reading the extracted PPT content, understanding the course logic, merging repeated points, interpreting table relationships, and writing the final review handout structure. The skill handles extraction, intermediate files, DOCX/PDF rendering, packaging, and QA reports.
+This is an **LLM-orchestrated skill**. The skill does not call a model internally. You, the calling LLM, are responsible for reading the extracted PPT content, understanding the course logic, deciding the correct organization order, merging repeated points, interpreting table relationships, and writing the final review handout structure. The skill handles extraction, intermediate files, DOCX/PDF rendering, packaging, and QA reports.
 
 ## When to use
 
@@ -56,9 +56,29 @@ This creates:
 
 The `compact.md` files are optimized for you to read. The `slides.json` files preserve fuller slide structure, including text, tables, detected roles, image counts, and notes.
 
-### Step 2: You analyze and write handout JSON
+### Step 2: Decide organization and write handout JSON
 
-For every chapter, read the corresponding `*.compact.md` and, if needed, `*.slides.json`. Then create a `*.handout.json` file.
+Before writing handouts, decide how the uploaded materials should be organized. Do not assume every file must be named `第一章`, `第二章`, etc. Use the user's request, file names, extracted slide titles, and actual content to infer the best order and grouping.
+
+Common cases:
+
+1. Continuous course chapters:
+   - Example files: `绪论.pptx`, `第一章 材料性能.pptx`, `第二章 晶体结构.pptx`
+   - Recommended output: one handout per chapter, ordered by course logic: 绪论 → 第一章 → 第二章.
+
+2. Single final-review deck:
+   - Example file: `机械工程材料总复习.pptx`
+   - Recommended output: one complete review handout organized by topics inside the deck.
+
+3. Independent topic decks:
+   - Example files: `金属材料复习.pptx`, `热处理专题.pptx`, `有色金属专题.pptx`
+   - Recommended output: one handout per independent deck. Do not force them into a chapter sequence.
+
+4. Mixed or unclear files:
+   - Example files: `绪论.pptx`, `实验复习.pptx`, `期末重点.pptx`, `补充资料.pptx`
+   - Recommended behavior: infer a sensible order, document the decision in `report.md` or a short note, and avoid pretending the files form a strict chapter sequence if they do not.
+
+For every chapter or independent deck, read the corresponding `*.compact.md` and, if needed, `*.slides.json`. Then create a `*.handout.json` file.
 
 You must follow these rules:
 
@@ -70,6 +90,7 @@ You must follow these rules:
 6. Convert processes into ordered steps.
 7. Mark image-heavy slides in `image_heavy_slides` when visual review is needed.
 8. Do not invent professional conclusions not supported by the PPT. If you add a small explanation for clarity, keep it conservative and derived from the slide content.
+9. If file order is ambiguous, choose the order that best matches teaching/review logic and briefly note the assumption.
 
 Handout JSON schema:
 
@@ -125,6 +146,8 @@ This creates:
 <output-dir>/report.json
 ```
 
+The default layout is `review-margin`, which leaves a right-side annotation area separated by a vertical line. This is recommended for printed exam-review notes. Use `--layout standard` only when the user wants a normal full-width document.
+
 ## Fallback one-pass mode
 
 For smoke tests only, you may run:
@@ -143,4 +166,4 @@ This uses deterministic rules and is not a substitute for your semantic analysis
 
 ## Quality bar
 
-A successful result should look like a real exam-review handout, not a slide dump. The final deliverables should include Word and PDF versions, clear chapter structure, key concepts, comparison tables, mechanisms/processes, likely exam points, confusing-point distinctions, and a quick final summary.
+A successful result should look like a real exam-review handout, not a slide dump. The final deliverables should include Word and PDF versions, clear chapter/topic structure, key concepts, comparison tables, mechanisms/processes, likely exam points, confusing-point distinctions, and a quick final summary. The organization order should be chosen by the calling LLM based on course logic, not blindly forced by file names.
