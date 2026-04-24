@@ -2,7 +2,7 @@ from pathlib import Path
 
 from docx import Document
 
-from ppt_review_handout.cli import handout_to_docx
+from ppt_review_handout.cli_v2 import handout_to_docx, validate_handout_schema
 
 
 def sample_handout():
@@ -52,3 +52,8 @@ def test_standard_docx_renders_normal_table(tmp_path: Path):
     doc = Document(str(out))
     assert any("宽表格测试" in p.text for p in doc.paragraphs)
     assert len(doc.tables) >= 1
+
+
+def test_rejects_slides_json_shape():
+    errors = validate_handout_schema({"chapter_title": "x", "slides": []})
+    assert any("slides.json" in e for e in errors)
