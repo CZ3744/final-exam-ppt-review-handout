@@ -1,9 +1,6 @@
 {
   "language": "zh-CN",
-  "document_title_suffix": "复习讲义版",
-  "remove_patterns": [
-    "黑龙江八一农垦大学食品学院",
-    "食品包装学"
-  ],
-  "max_table_rows_in_summary": 30
+  "document_title_suffix": "考前复习讲义版",
+  "remove_patterns": [],
+  "max_table_rows_in_summary": 8
 }
