@@ -290,9 +290,30 @@ def load_config(path: str | None) -> dict:
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
 
 
+def ensure_child(parent, tag: str):
+    child = parent.find(qn(tag))
+    if child is None:
+        child = OxmlElement(tag)
+        parent.append(child)
+    return child
+
+
+def ensure_rfonts(element):
+    """Ensure `w:rPr/w:rFonts` exists on a run or style XML element."""
+    rpr = ensure_child(element, "w:rPr")
+    return ensure_child(rpr, "w:rFonts")
+
+
+def set_east_asia_font(element, font_name: str):
+    rfonts = ensure_rfonts(element)
+    rfonts.set(qn("w:eastAsia"), font_name)
+    rfonts.set(qn("w:hAnsi"), font_name)
+    rfonts.set(qn("w:ascii"), font_name)
+
+
 def set_font(run, east_asia="宋体", size=10.5, bold=None):
-    run.font.name = "Times New Roman"
-    run._element.rPr.rFonts.set(qn("w:eastAsia"), east_asia)
+    run.font.name = east_asia
+    set_east_asia_font(run._element, east_asia)
     run.font.size = Pt(size)
     if bold is not None:
         run.bold = bold
@@ -312,12 +333,12 @@ def setup_doc(layout: str = "review-margin") -> Document:
         sec.top_margin = sec.bottom_margin = sec.left_margin = sec.right_margin = Cm(1.8)
     styles = doc.styles
     styles["Normal"].font.size = Pt(10.5)
-    styles["Normal"]._element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
+    set_east_asia_font(styles["Normal"]._element, "宋体")
     for name, size in [("Title", 18), ("Heading 1", 15), ("Heading 2", 13), ("Heading 3", 11)]:
         style = styles[name]
         style.font.size = Pt(size)
         style.font.bold = True
-        style._element.rPr.rFonts.set(qn("w:eastAsia"), "黑体")
+        set_east_asia_font(style._element, "黑体")
     return doc
 
 
@@ -374,7 +395,6 @@ def prepare_content_target(doc: Document, layout: str):
         p = right.paragraphs[0]
         r = p.add_run("批注区")
         set_font(r, "宋体", 8)
-        r.font.color.rgb = None
     return left
 
 
@@ -382,7 +402,8 @@ def add_heading(target, text: str, level: int = 1):
     if hasattr(target, "add_heading"):
         return target.add_heading(text, level=level)
     p = target.add_paragraph(style=f"Heading {level}")
-    p.add_run(text)
+    r = p.add_run(text)
+    set_font(r, "黑体", 12 if level >= 2 else 14, True)
     return p
 
 
@@ -405,11 +426,30 @@ def add_bullets(target, items, style="List Bullet"):
             set_font(r)
 
 
-def add_table(target, title: str, headers: list[str], rows: list[list[str]]):
+def render_wide_table_as_cards(target, headers: list[str], rows: list[list[str]]):
+    for idx, row in enumerate(rows, start=1):
+        title = row[0] if row else f"第 {idx} 项"
+        p = target.add_paragraph(style="List Bullet")
+        r = p.add_run(str(title))
+        set_font(r, "黑体", 10.5, True)
+        for col_idx, cell in enumerate(row[1:], start=1):
+            label = headers[col_idx] if col_idx < len(headers) else f"项目{col_idx + 1}"
+            p = target.add_paragraph()
+            p.paragraph_format.left_indent = Cm(0.6)
+            r1 = p.add_run(f"{label}：")
+            set_font(r1, "黑体", 10.5, True)
+            r2 = p.add_run(str(cell))
+            set_font(r2)
+
+
+def add_table(target, title: str, headers: list[str], rows: list[list[str]], layout: str = "review-margin"):
     if not rows:
         return
     add_heading(target, title or "对比表", level=3)
     width = max(len(headers), max((len(r) for r in rows), default=0), 1)
+    if layout == "review-margin" and width >= 4:
+        render_wide_table_as_cards(target, headers, rows)
+        return
     table = target.add_table(rows=1, cols=width)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     table.style = "Table Grid"
@@ -455,7 +495,7 @@ def handout_to_docx(handout: dict, path: Path, layout: str = "review-margin"):
     tables = handout.get("comparison_tables") or []
     if tables:
         for t in tables:
-            add_table(target, t.get("title", "对比表"), t.get("headers", []), t.get("rows", []))
+            add_table(target, t.get("title", "对比表"), t.get("headers", []), t.get("rows", []), layout=layout)
     else:
         add_bullets(target, ["本章未提供对比表。"])
     add_heading(target, "六、原理、机制与流程", level=1)
@@ -481,7 +521,13 @@ def export_pdf(docx_path: Path, pdf_dir: Path) -> tuple[str | None, str | None]:
         return None, "PDF export skipped: libreoffice/soffice not found."
     pdf_dir.mkdir(parents=True, exist_ok=True)
     try:
-        subprocess.run([exe, "--headless", "--convert-to", "pdf", "--outdir", str(pdf_dir), str(docx_path)], check=True, timeout=180, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(
+            [exe, "--headless", "--convert-to", "pdf", "--outdir", str(pdf_dir), str(docx_path)],
+            check=True,
+            timeout=180,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
     except subprocess.TimeoutExpired:
         return None, "PDF export failed: LibreOffice conversion timed out."
     except subprocess.CalledProcessError as exc:
