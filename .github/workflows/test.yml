@@ -5,13 +5,15 @@ on:
   pull_request:
 
 jobs:
-  smoke-test:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -e .
-      - run: python -m ppt_review_handout.cli --help
+      - run: python -m pip install --upgrade pip
+      - run: pip install -e . pytest
+      - run: python -m ppt_review_handout.cli_v2 --help
       - run: python -c "import ppt_review_handout; print(ppt_review_handout.__version__)"
+      - run: pytest -q
