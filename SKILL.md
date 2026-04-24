@@ -1,7 +1,7 @@
 ---
 name: final-exam-ppt-review-handout
-description: Extract Chinese university lecture PPTX files and render caller-authored final-exam review handouts into Word/PDF deliverables.
-version: 0.2.0
+description: Extract Chinese university lecture PPTX/PPTM files and render caller-authored final-exam review handouts into Word/PDF deliverables.
+version: 0.2.1
 metadata:
   openclaw:
     requires:
@@ -17,7 +17,7 @@ metadata:
 
 # Final Exam PPT Review Handout
 
-Use this skill when the user wants to convert teacher-provided university course PPT/PPTX files into final-exam-oriented review outlines, Word handouts, and PDFs.
+Use this skill when the user wants to convert teacher-provided university course `.pptx` / `.pptm` files into final-exam-oriented review outlines, Word handouts, and PDFs. Legacy binary `.ppt` files are detected and reported, but they must be converted to `.pptx` first because `python-pptx` cannot parse them.
 
 This is an **LLM-orchestrated skill**. The skill does not call a model internally. You, the calling LLM, are responsible for reading the extracted PPT content, understanding the course logic, deciding the correct organization order, merging repeated points, interpreting table relationships, and writing the final review handout structure. The skill handles extraction, intermediate files, DOCX/PDF rendering, packaging, and QA reports.
 
@@ -26,7 +26,7 @@ This is an **LLM-orchestrated skill**. The skill does not call a model internall
 Use this skill for requests such as:
 
 - “把老师给的 PPT 整理成期末复习大纲。”
-- “把这些课程 PPT 做成考前复习讲义 Word 和 PDF。”
+- “把这些课程 PPTX/PPTM 做成考前复习讲义 Word 和 PDF。”
 - “不要机械提取文字，要按知识点和易考点整理。”
 - “每章一份 Word，每章一份 PDF。”
 
@@ -34,13 +34,22 @@ Do not use it for generic business slide summarization unless the user specifica
 
 ## Required workflow
 
-### Step 1: Extract PPT content
+### Step 1: Extract PPTX/PPTM content
 
-Run:
+Run either the installed command:
 
 ```bash
-python -m ppt_review_handout.cli extract \
-  --input <pptx-file-or-directory> \
+ppt-review-handout extract \
+  --input <pptx-pptm-file-or-directory> \
+  --workspace <workspace-dir> \
+  --config examples/sample_config.json
+```
+
+or the module form:
+
+```bash
+python -m ppt_review_handout.cli_v2 extract \
+  --input <pptx-pptm-file-or-directory> \
   --workspace <workspace-dir> \
   --config examples/sample_config.json
 ```
@@ -54,7 +63,7 @@ This creates:
 <workspace-dir>/report.json
 ```
 
-The `compact.md` files are optimized for you to read. The `slides.json` files preserve fuller slide structure, including text, tables, detected roles, image counts, and notes.
+The `compact.md` files are optimized for you to read. The `slides.json` files preserve fuller slide structure, including text, tables, detected roles, image counts, and notes. If the report warns that many pages are image-heavy, inspect the original PPT with a vision/OCR-capable step before writing the final handout.
 
 ### Step 2: Decide organization and write handout JSON
 
@@ -78,7 +87,7 @@ Common cases:
    - Example files: `绪论.pptx`, `实验复习.pptx`, `期末重点.pptx`, `补充资料.pptx`
    - Recommended behavior: infer a sensible order, document the decision in `report.md` or a short note, and avoid pretending the files form a strict chapter sequence if they do not.
 
-For every chapter or independent deck, read the corresponding `*.compact.md` and, if needed, `*.slides.json`. Then create a `*.handout.json` file.
+For every chapter or independent deck, read the corresponding `*.compact.md` and, if needed, `*.slides.json`. Then create a `*.handout.json` file. The render step intentionally refuses raw `slides.json`, so do not skip this semantic handout-writing step.
 
 You must follow these rules:
 
@@ -129,7 +138,17 @@ Handout JSON schema:
 Run:
 
 ```bash
-python -m ppt_review_handout.cli render \
+ppt-review-handout render \
+  --analysis <directory-containing-handout-json> \
+  --output <output-dir> \
+  --export-pdf \
+  --zip-word
+```
+
+or:
+
+```bash
+python -m ppt_review_handout.cli_v2 render \
   --analysis <directory-containing-handout-json> \
   --output <output-dir> \
   --export-pdf \
@@ -146,15 +165,15 @@ This creates:
 <output-dir>/report.json
 ```
 
-The default layout is `review-margin`, which leaves a right-side annotation area separated by a vertical line. This is recommended for printed exam-review notes. Use `--layout standard` only when the user wants a normal full-width document.
+The default layout is `review-margin`, which leaves a right-side annotation area separated by a vertical line. This is recommended for printed exam-review notes. Use `--layout standard` when the user wants a normal full-width document or a conservative fallback layout.
 
 ## Fallback one-pass mode
 
 For smoke tests only, you may run:
 
 ```bash
-python -m ppt_review_handout.cli build \
-  --input <pptx-file-or-directory> \
+ppt-review-handout build \
+  --input <pptx-pptm-file-or-directory> \
   --output <output-dir> \
   --mode handout \
   --export-pdf \
@@ -162,7 +181,7 @@ python -m ppt_review_handout.cli build \
   --keep-intermediate
 ```
 
-This uses deterministic rules and is not a substitute for your semantic analysis.
+This uses deterministic rules and is not a substitute for your semantic analysis. Fallback outputs are explicitly marked as rough drafts in the DOCX/report.
 
 ## Quality bar
 
