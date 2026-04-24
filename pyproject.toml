@@ -7,7 +7,7 @@ name = "final-exam-ppt-review-handout"
 version = "0.2.0"
 description = "Extract Chinese university lecture PPTX files and render final-exam review handouts with DOCX/PDF output."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT-0" }
 authors = [{ name = "final-exam-ppt-review-handout contributors" }]
 dependencies = [
