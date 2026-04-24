@@ -2,7 +2,7 @@ from pathlib import Path
 
 from docx import Document
 
-from ppt_review_handout.cli import handout_to_docx
+from ppt_review_handout.cli_v2 import handout_to_docx, validate_handout_schema
 
 
 def sample_handout():
@@ -38,8 +38,6 @@ def test_review_margin_docx_renders_with_wide_table(tmp_path: Path):
     assert out.exists()
     doc = Document(str(out))
     text = "\n".join(p.text for p in doc.paragraphs)
-    # Wide tables in review-margin layout should be converted to vertical cards,
-    # so all cell values remain visible in paragraphs instead of being clipped.
     assert "材料A" in text
     assert "定义A" in text
     assert "易错点A" in text
@@ -52,3 +50,9 @@ def test_standard_docx_renders_normal_table(tmp_path: Path):
     doc = Document(str(out))
     assert any("宽表格测试" in p.text for p in doc.paragraphs)
     assert len(doc.tables) >= 1
+
+
+def test_schema_rejects_slides_json():
+    errors = validate_handout_schema({"chapter_title": "x", "slides": []})
+    assert any("slides.json" in e for e in errors)
+    assert any("Missing handout fields" in e for e in errors)
