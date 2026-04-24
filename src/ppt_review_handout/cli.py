@@ -6,22 +6,27 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-from zipfile import ZipFile, ZIP_DEFLATED
+from zipfile import ZIP_DEFLATED, ZipFile
 
-from pptx import Presentation
-from pptx.enum.shapes import MSO_SHAPE_TYPE
 from docx import Document
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
+from pptx import Presentation
+from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 CN_DIGITS = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
 CN_UNITS = {"十": 10, "百": 100, "千": 1000}
+SUPPORTED_SUFFIXES = {".pptx", ".pptm"}
+UNSUPPORTED_SUFFIXES = {".ppt"}
 BOILERPLATE = [
     r"^PowerPoint Template$",
     r"^单击此处编辑母版文本样式$",
-    r"^第二级$", r"^第三级$", r"^第四级$", r"^第五级$",
+    r"^第二级$",
+    r"^第三级$",
+    r"^第四级$",
+    r"^第五级$",
 ]
 
 
@@ -58,11 +63,22 @@ def chapter_index(name: str) -> int:
     return int(m.group(2)) if m else 9999
 
 
-def discover_pptx(path: Path) -> list[Path]:
+def discover_pptx(path: Path) -> tuple[list[Path], list[Path]]:
+    """Return supported PPTX-like files and unsupported legacy PPT files.
+
+    python-pptx cannot parse old binary .ppt files. We surface them as warnings
+    instead of silently failing or pretending they were processed.
+    """
     if path.is_file():
-        return [path] if path.suffix.lower() in {".pptx", ".ppt"} else []
-    files = [p for p in path.iterdir() if p.suffix.lower() in {".pptx", ".ppt"} and not p.name.startswith("~$")]
-    return sorted(files, key=lambda p: (chapter_index(p.name), p.name))
+        if path.suffix.lower() in SUPPORTED_SUFFIXES:
+            return [path], []
+        if path.suffix.lower() in UNSUPPORTED_SUFFIXES:
+            return [], [path]
+        return [], []
+    candidates = [p for p in path.iterdir() if not p.name.startswith("~$")]
+    supported = [p for p in candidates if p.suffix.lower() in SUPPORTED_SUFFIXES]
+    unsupported = [p for p in candidates if p.suffix.lower() in UNSUPPORTED_SUFFIXES]
+    return sorted(supported, key=lambda p: (chapter_index(p.name), p.name)), sorted(unsupported, key=lambda p: p.name)
 
 
 def safe_name(name: str) -> str:
@@ -78,6 +94,14 @@ def is_noise(text: str, custom: list[str] | None = None) -> bool:
     if custom and any(x and x in t for x in custom):
         return True
     return any(re.match(p, t) for p in BOILERPLATE)
+
+
+def iter_shapes(shapes):
+    """Yield shapes recursively, including shapes inside grouped objects."""
+    for shape in shapes:
+        yield shape
+        if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+            yield from iter_shapes(shape.shapes)
 
 
 def extract_shape_text(shape) -> list[str]:
@@ -97,6 +121,14 @@ def extract_table(shape) -> list[list[str]] | None:
     for row in shape.table.rows:
         rows.append([" ".join(cell.text.split()).strip() for cell in row.cells])
     return rows
+
+
+def extract_notes(slide) -> str:
+    try:
+        notes = slide.notes_slide.notes_text_frame
+        return "\n".join(p.text.strip() for p in notes.paragraphs if p.text.strip())
+    except Exception:
+        return ""
 
 
 def detect_role(title: str, texts: list[str], tables: list[list[list[str]]], image_count: int) -> str:
@@ -122,7 +154,7 @@ def extract_presentation(pptx_path: Path, remove_patterns: list[str] | None = No
         texts: list[str] = []
         tables: list[list[list[str]]] = []
         image_count = 0
-        for shape in slide.shapes:
+        for shape in iter_shapes(slide.shapes):
             if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
                 image_count += 1
             if getattr(shape, "has_table", False):
@@ -134,19 +166,20 @@ def extract_presentation(pptx_path: Path, remove_patterns: list[str] | None = No
                     removed.append(text)
                 else:
                     texts.append(text)
-        # simple title heuristic: first non-empty short text, otherwise file stem
         title = texts[0] if texts else f"第 {idx} 页"
         if len(title) > 80:
             title = f"第 {idx} 页"
-        slides.append({
-            "index": idx,
-            "title": title,
-            "texts": texts[1:] if texts and texts[0] == title else texts,
-            "tables": [{"rows": t} for t in tables],
-            "image_count": image_count,
-            "notes": "",
-            "detected_role": detect_role(title, texts, tables, image_count),
-        })
+        slides.append(
+            {
+                "index": idx,
+                "title": title,
+                "texts": texts[1:] if texts and texts[0] == title else texts,
+                "tables": [{"rows": t} for t in tables],
+                "image_count": image_count,
+                "notes": extract_notes(slide),
+                "detected_role": detect_role(title, texts, tables, image_count),
+            }
+        )
     return {
         "source_file": str(pptx_path),
         "chapter_title": pptx_path.stem,
@@ -158,18 +191,24 @@ def extract_presentation(pptx_path: Path, remove_patterns: list[str] | None = No
 
 def clip(text: str, limit: int = 900) -> str:
     text = " ".join(str(text).split())
-    return text if len(text) <= limit else text[:limit-1] + "…"
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def deck_to_compact_md(deck: dict) -> str:
     lines = [
-        f"# {deck['chapter_title']}", "",
+        f"# {deck['chapter_title']}",
+        "",
         f"- 来源文件：{Path(deck['source_file']).name}",
-        f"- PPT 页数：{deck['slide_count']}", "",
-        "## 给调用方 LLM 的任务说明", "",
-        "请阅读本 compact.md，必要时参考同名 slides.json。你需要自己完成课程内容理解、知识点合并、表格语义化、易考点提炼和复习讲义结构化；不要机械逐页复制 PPT 原文。", "",
-        "建议输出 handout.json，字段包括：chapter_title, source_file, review_goals, knowledge_framework, core_points, terms, comparison_tables, processes, exam_points, confusing_points, quick_summary, slide_count, image_heavy_slides。", "",
-        "## 幻灯片摘要", "",
+        f"- PPT 页数：{deck['slide_count']}",
+        "",
+        "## 给调用方 LLM 的任务说明",
+        "",
+        "请阅读本 compact.md，必要时参考同名 slides.json。你需要自己完成课程内容理解、知识点合并、表格语义化、易考点提炼和复习讲义结构化；不要机械逐页复制 PPT 原文。",
+        "",
+        "建议输出 handout.json，字段包括：chapter_title, source_file, review_goals, knowledge_framework, core_points, terms, comparison_tables, processes, exam_points, confusing_points, quick_summary, slide_count, image_heavy_slides。",
+        "",
+        "## 幻灯片摘要",
+        "",
     ]
     for slide in deck["slides"]:
         lines.append(f"## 第 {slide['index']} 页：{slide['title']}")
@@ -190,7 +229,10 @@ def deck_to_compact_md(deck: dict) -> str:
                 for row in rows[:8]:
                     lines.append("    - " + " | ".join(clip(cell, 80) for cell in row))
                 if len(rows) > 8:
-                    lines.append(f"    - ……其余 {len(rows)-8} 行略，详见 slides.json")
+                    lines.append(f"    - ……其余 {len(rows) - 8} 行略，详见 slides.json")
+        if slide.get("notes"):
+            lines.append("- 备注：")
+            lines.append(f"  - {clip(slide['notes'])}")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
@@ -199,8 +241,31 @@ def extract_cmd(args) -> int:
     config = load_config(args.config)
     workspace = Path(args.workspace).expanduser().resolve()
     workspace.mkdir(parents=True, exist_ok=True)
-    files = discover_pptx(Path(args.input).expanduser().resolve())
+    files, unsupported = discover_pptx(Path(args.input).expanduser().resolve())
     records = []
+    for old in unsupported:
+        records.append(
+            {
+                "source_file": str(old),
+                "chapter_title": old.stem,
+                "slide_count": 0,
+                "warnings": ["Legacy .ppt is not supported by python-pptx. Convert it to .pptx first."],
+                "errors": [],
+            }
+        )
+    if not files:
+        if not records:
+            records.append(
+                {
+                    "source_file": str(args.input),
+                    "chapter_title": "No PPTX files found",
+                    "slide_count": 0,
+                    "warnings": [],
+                    "errors": ["No supported .pptx/.pptm files found."],
+                }
+            )
+        write_report(workspace, records)
+        return 1
     for ppt in files:
         print(f"[extract] {ppt.name}")
         rec = {"source_file": str(ppt), "chapter_title": ppt.stem, "slide_count": 0, "warnings": [], "errors": []}
@@ -279,7 +344,7 @@ def add_table(doc: Document, title: str, headers: list[str], rows: list[list[str
     table.style = "Table Grid"
     for i in range(width):
         cell = table.rows[0].cells[i]
-        cell.text = headers[i] if i < len(headers) else f"项目{i+1}"
+        cell.text = headers[i] if i < len(headers) else f"项目{i + 1}"
     for row in rows:
         cells = table.add_row().cells
         for i in range(width):
@@ -290,7 +355,7 @@ def handout_to_docx(handout: dict, path: Path):
     doc = setup_doc()
     add_title(doc, handout.get("chapter_title", "未命名章节"))
     meta = doc.add_paragraph()
-    r = meta.add_run(f"来源文件：{Path(handout.get('source_file','')).name}；PPT 页数：{handout.get('slide_count', 0)} 页")
+    r = meta.add_run(f"来源文件：{Path(handout.get('source_file', '')).name}；PPT 页数：{handout.get('slide_count', 0)} 页")
     set_font(r, size=9)
     sections = [
         ("一、本章复习目标", handout.get("review_goals", [])),
@@ -338,14 +403,20 @@ def handout_to_docx(handout: dict, path: Path):
     doc.save(str(path))
 
 
-def export_pdf(docx_path: Path, pdf_dir: Path) -> str | None:
+def export_pdf(docx_path: Path, pdf_dir: Path) -> tuple[str | None, str | None]:
     exe = shutil.which("libreoffice") or shutil.which("soffice")
     if not exe:
-        return None
+        return None, "PDF export skipped: libreoffice/soffice not found."
     pdf_dir.mkdir(parents=True, exist_ok=True)
-    subprocess.run([exe, "--headless", "--convert-to", "pdf", "--outdir", str(pdf_dir), str(docx_path)], check=True, timeout=180)
+    try:
+        subprocess.run([exe, "--headless", "--convert-to", "pdf", "--outdir", str(pdf_dir), str(docx_path)], check=True, timeout=180, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except subprocess.TimeoutExpired:
+        return None, "PDF export failed: LibreOffice conversion timed out."
+    except subprocess.CalledProcessError as exc:
+        err = exc.stderr.decode("utf-8", errors="ignore") if exc.stderr else str(exc)
+        return None, f"PDF export failed: {err[:300]}"
     pdf = pdf_dir / (docx_path.stem + ".pdf")
-    return str(pdf) if pdf.exists() else None
+    return (str(pdf), None) if pdf.exists() else (None, "PDF export failed: converted file not found.")
 
 
 def render_cmd(args) -> int:
@@ -353,6 +424,10 @@ def render_cmd(args) -> int:
     out = Path(args.output).expanduser().resolve()
     files = [analysis] if analysis.is_file() else (sorted(analysis.glob("*.handout.json")) or sorted(analysis.glob("*.json")))
     records = []
+    if not files:
+        records.append({"source_file": str(analysis), "chapter_title": "No handout JSON files found", "slide_count": 0, "warnings": [], "errors": ["No *.handout.json or *.json files found in analysis directory."]})
+        write_report(out, records)
+        return 1
     for jf in files:
         rec = {"source_file": str(jf), "chapter_title": jf.stem, "slide_count": 0, "warnings": [], "errors": []}
         try:
@@ -362,11 +437,11 @@ def render_cmd(args) -> int:
             handout_to_docx(handout, docx)
             rec.update({"chapter_title": handout.get("chapter_title", jf.stem), "slide_count": handout.get("slide_count", 0), "docx": str(docx)})
             if args.export_pdf:
-                pdf = export_pdf(docx, out / "pdf")
+                pdf, warning = export_pdf(docx, out / "pdf")
                 if pdf:
                     rec["pdf"] = pdf
-                else:
-                    rec["warnings"].append("PDF export skipped: libreoffice/soffice not found or conversion failed.")
+                if warning:
+                    rec["warnings"].append(warning)
         except Exception as exc:
             rec["errors"].append(str(exc))
         records.append(rec)
@@ -429,8 +504,15 @@ def fallback_handout(deck: dict) -> dict:
 def build_cmd(args) -> int:
     workspace = Path(args.output).expanduser().resolve()
     config = load_config(args.config)
-    files = discover_pptx(Path(args.input).expanduser().resolve())
+    files, unsupported = discover_pptx(Path(args.input).expanduser().resolve())
     records = []
+    for old in unsupported:
+        records.append({"source_file": str(old), "chapter_title": old.stem, "slide_count": 0, "warnings": ["Legacy .ppt is not supported by python-pptx. Convert it to .pptx first."], "errors": []})
+    if not files:
+        if not records:
+            records.append({"source_file": str(args.input), "chapter_title": "No PPTX files found", "slide_count": 0, "warnings": [], "errors": ["No supported .pptx/.pptm files found."]})
+        write_report(workspace, records)
+        return 1
     for ppt in files:
         try:
             deck = extract_presentation(ppt, config.get("remove_patterns"))
@@ -447,7 +529,7 @@ def build_cmd(args) -> int:
             jf.write_text(json.dumps(handout, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception as exc:
             records.append({"source_file": str(ppt), "chapter_title": ppt.stem, "slide_count": 0, "warnings": [], "errors": [str(exc)]})
-    if records:
+    if records and any(r["errors"] for r in records):
         write_report(workspace, records)
         return 1
     args.analysis = str(workspace / "_fallback_analysis")
