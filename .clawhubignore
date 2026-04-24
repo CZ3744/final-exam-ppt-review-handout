@@ -1,0 +1,17 @@
+validation_outputs/
+outputs/
+workspace/
+dist/
+build/
+.venv/
+__pycache__/
+.pytest_cache/
+*.docx
+*.pdf
+*.zip
+*.pptx
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
