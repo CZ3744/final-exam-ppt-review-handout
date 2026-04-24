@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+build/
+dist/
+*.egg-info/
+outputs/
+validation_outputs/
+workspace/
+*.docx
+*.pdf
+*.zip
+*.pptx
+.DS_Store
+.pytest_cache/
