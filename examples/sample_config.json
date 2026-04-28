@@ -1,6 +1,15 @@
 {
-  "language": "zh-CN",
-  "document_title_suffix": "考前复习讲义版",
+  "language": "generic",
+  "document_title_suffix": "Structured handout",
+  "output_filename_suffix": "handout",
+  "zip_filename": "handouts_docx.zip",
+  "note_column_label": "Notes",
+  "body_font": "Arial",
+  "heading_font": "Arial",
   "remove_patterns": [],
-  "max_table_rows_in_summary": 8
+  "max_table_rows_in_summary": 8,
+  "max_text_items_per_slide": 12,
+  "text_clip_limit": 900,
+  "image_heavy_threshold": 0.3,
+  "absolute_paths": false
 }
