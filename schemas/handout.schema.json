@@ -1,0 +1,22 @@
+{
+  "title": "Caller-authored PPT handout",
+  "type": "object",
+  "required": ["chapter_title", "source_file", "review_goals", "knowledge_framework", "core_points", "terms", "comparison_tables", "processes", "exam_points", "confusing_points", "quick_summary", "slide_count", "image_heavy_slides"],
+  "properties": {
+    "chapter_title": { "type": "string", "minLength": 1 },
+    "source_file": { "type": "string" },
+    "review_goals": { "type": "array", "items": { "type": "string" } },
+    "knowledge_framework": { "type": "array", "items": { "type": "string" } },
+    "core_points": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } } },
+    "terms": { "type": "object", "additionalProperties": { "type": "string" } },
+    "comparison_tables": { "type": "array", "items": { "type": "object", "required": ["title", "headers", "rows"], "properties": { "title": { "type": "string" }, "headers": { "type": "array", "items": { "type": "string" } }, "rows": { "type": "array", "items": { "type": "array", "items": { "type": "string" } } } }, "additionalProperties": true } },
+    "processes": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } } },
+    "exam_points": { "type": "array", "items": { "type": "string" } },
+    "confusing_points": { "type": "array", "items": { "type": "string" } },
+    "quick_summary": { "type": "array", "items": { "type": "string" } },
+    "slide_count": { "type": "integer", "minimum": 0 },
+    "image_heavy_slides": { "type": "array", "items": { "type": "integer", "minimum": 1 } },
+    "generated_by_fallback": { "type": "boolean" }
+  },
+  "additionalProperties": true
+}
