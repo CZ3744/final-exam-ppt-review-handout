@@ -1,0 +1,27 @@
+{
+  "language": "zh-CN",
+  "document_title_suffix": "考前复习讲义版",
+  "output_filename_suffix": "复习讲义版",
+  "zip_filename": "review_handouts_docx.zip",
+  "note_column_label": "批注区",
+  "body_font": "宋体",
+  "heading_font": "黑体",
+  "remove_patterns": [],
+  "max_table_rows_in_summary": 8,
+  "max_text_items_per_slide": 12,
+  "text_clip_limit": 900,
+  "image_heavy_threshold": 0.3,
+  "absolute_paths": false,
+  "sections": {
+    "review_goals": "一、本章复习目标",
+    "knowledge_framework": "二、本章知识框架",
+    "core_points": "三、核心知识点整理",
+    "terms": "四、重要概念与名词解释",
+    "comparison_tables": "五、分类、对比与表格",
+    "processes": "六、原理、机制与流程",
+    "exam_points": "七、易考点归纳",
+    "confusing_points": "八、易混淆点辨析",
+    "quick_summary": "九、本章速记总结",
+    "image_heavy_slides": "十、需复核的图片/图示页"
+  }
+}
