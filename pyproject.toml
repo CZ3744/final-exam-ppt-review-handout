@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "final-exam-ppt-review-handout"
-version = "0.3.0"
+version = "0.3.1"
 description = "Extract PPTX/PPTM files into structured intermediate data and render caller-authored handouts with DOCX/PDF output."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,8 +16,8 @@ dependencies = [
 ]
 
 [project.scripts]
-final-exam-ppt-review-handout = "ppt_review_handout.workflow_cli:main"
-ppt-review-handout = "ppt_review_handout.workflow_cli:main"
+final-exam-ppt-review-handout = "ppt_review_handout.cli_generic:main"
+ppt-review-handout = "ppt_review_handout.cli_generic:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
