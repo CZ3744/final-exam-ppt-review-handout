@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "final-exam-ppt-review-handout"
-version = "0.2.1"
-description = "Extract Chinese university lecture PPTX/PPTM files and render final-exam review handouts with DOCX/PDF output."
+version = "0.3.0"
+description = "Extract PPTX/PPTM files into structured intermediate data and render caller-authored handouts with DOCX/PDF output."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT-0" }
@@ -16,8 +16,8 @@ dependencies = [
 ]
 
 [project.scripts]
-final-exam-ppt-review-handout = "ppt_review_handout.cli_v2:main"
-ppt-review-handout = "ppt_review_handout.cli_v2:main"
+final-exam-ppt-review-handout = "ppt_review_handout.workflow_cli:main"
+ppt-review-handout = "ppt_review_handout.workflow_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
