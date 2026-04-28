@@ -1,180 +1,62 @@
 # final-exam-ppt-review-handout
 
-面向中国高校期末复习场景的 OpenClaw / ClawHub skill：把老师给的课程 `.pptx` / `.pptm` 课件整理成**考前复习大纲、Word 讲义和 PDF**。
+A generic OpenClaw / LLM workflow skill for turning `.pptx` / `.pptm` slide decks into caller-authored structured handouts.
 
-> 旧版二进制 `.ppt` 文件会被检测并写入报告，但需要先转换成 `.pptx`，因为 `python-pptx` 不能直接解析 `.ppt`。
+The project is intentionally split into two responsibilities:
 
-它不是泛泛的 PPT 总结工具，而是专门服务于这类需求：
+- **The CLI handles deterministic work:** PPTX/PPTM discovery, text/table/notes/visual metadata extraction, intermediate files, handout JSON validation, DOCX/PDF rendering, zipping, and reports.
+- **The calling LLM handles semantic work:** reading the extracted content, understanding the material, deciding the organization, merging repeated points, interpreting tables/processes, and authoring `*.handout.json`.
 
-> “我的课程 PPTX/PPTM 在某个路径里，请你自己拉取这个 skill，分析课件，整理成适合期末复习的讲义，输出 Word 和 PDF。”
+It is not a raw PPT-to-PDF converter and it is not a fully autonomous content generator. The high-quality path is always:
+
+```text
+extract -> calling LLM reads compact.md/slides.json -> calling LLM writes *.handout.json -> render
+```
+
+Legacy binary `.ppt` files are detected and reported, but must be converted to `.pptx` first because `python-pptx` cannot parse them.
 
 ---
 
-## 这个 skill 能做什么？
+## What it does
 
-- 批量处理一门课的多章 `.pptx` / `.pptm`，也能处理单个总复习课件或一组独立专题课件。
-- 不要求文件必须命名为 `第一章、第二章`；AI 会根据文件名、页内标题和实际内容自行判断顺序与分组。
-- 提取课件中的标题、正文、表格、备注和图示页信息。
-- 对图片占比较高的课件在报告中提示调用方结合原 PPT 或视觉/OCR 步骤复核。
-- 让调用它的 AI 根据课件内容进行理解、合并和提炼，而不是机械复制文字。
-- 输出每个章节/专题一份 Word 复习讲义。
-- 输出每个章节/专题一份 PDF。
-- 可把所有 Word 打包成 zip。
-- 生成运行报告，说明处理了哪些文件、输出了哪些产物、有没有失败或警告。
+- Processes one PPTX/PPTM file or a directory of decks.
+- Supports recursive discovery with collision-safe output names.
+- Extracts slide titles, text blocks, tables, notes, and visual-heavy slide hints.
+- Writes compact Markdown summaries plus fuller `slides.json` files.
+- Requires caller-authored `*.handout.json` for rendering; raw `slides.json` is refused.
+- Renders DOCX handouts with configurable title suffix, filename suffix, section titles, fonts, zip name, and note-column label.
+- Optionally exports PDF via LibreOffice/soffice.
+- Writes `report.md` and `report.json` with warnings/errors.
 
-默认推荐使用 **review-margin 批注式讲义版式**：正文区域在左侧，右侧预留约四分之一空白批注区，中间用竖线隔开，方便打印后手写补充、复核图示页和标注重点。也可以通过 `--layout standard` 切换为普通满版讲义。
-
-最终目标是得到这种资料：
-
-```text
-第一章 绪论_复习讲义版.docx
-第一章 绪论_复习讲义版.pdf
-材料性能专题_复习讲义版.docx
-材料性能专题_复习讲义版.pdf
-review_handouts_docx.zip
-report.md
-report.json
-```
+The previous China-university/final-exam wording is now only an example profile idea. Core code and default config are generic.
 
 ---
 
-## 最简单用法：直接告诉 OpenClaw / Agent
-
-普通用户不需要理解内部流程。你可以直接对 OpenClaw、Claude Code、Codex 或其他本地 agent 说：
-
-```text
-去 GitHub 拉取这个 skill：
-https://github.com/CZ3744/final-exam-ppt-review-handout
-
-我的课程 PPTX/PPTM 放在：<你的课件目录>
-请按这个 skill 的 SKILL.md 流程执行：
-1. 先提取课件内容；
-2. 你自己阅读提取结果，判断这些资料是连续章节、单个总复习课件，还是一组独立专题课件；
-3. 你自己决定合理顺序和分组，不要只按文件名机械排序；
-4. 整理成期末复习讲义；
-5. 再导出 Word 和 PDF；
-6. 输出到：<你的输出目录>；
-7. 默认使用推荐的 review-margin 批注式讲义版式；
-8. 完成后检查 report.md，并把结果路径告诉我。
-
-注意：不要机械逐页复制 PPT，要按考前复习逻辑整理成知识点大纲、名词解释、对比表、流程、易考点和速记总结。
-```
-
-如果你想输出到原课件同目录，可以把最后一行改成：
-
-```text
-输出到课件目录下新建的 final_review_outputs 文件夹。
-```
-
----
-
-## 常见资料组织方式
-
-这个 skill 不要求固定命名。调用它的 AI 应自己判断资料结构。
-
-### 连续章节课件
-
-```text
-绪论.pptx
-第一章 材料性能.pptx
-第二章 晶体结构.pptx
-第三章 钢的热处理.pptx
-```
-
-推荐输出：按课程逻辑输出每章讲义，通常为：绪论 → 第一章 → 第二章 → 第三章。
-
-### 单个总复习课件
-
-```text
-机械工程材料总复习.pptx
-```
-
-推荐输出：生成一份完整总复习讲义，内部按知识主题重组。
-
-### 独立专题课件
-
-```text
-金属材料复习.pptx
-热处理专题.pptx
-有色金属专题.pptx
-实验复习.pptx
-```
-
-推荐输出：每个专题单独生成一份讲义，不要强行合并为“第一章、第二章”。
-
-### 混合或命名不清楚
-
-```text
-绪论.pptx
-期末重点.pptx
-补充资料.pptx
-实验复习.pptx
-```
-
-推荐做法：AI 根据内容决定顺序，并在结果或报告中简要说明排序假设。
-
----
-
-## 适合什么场景？
-
-适合：
-
-- 中国高校期末复习；
-- 老师发了一整套 `.pptx` / `.pptm` 课程课件；
-- 想把课件变成复习大纲、知识点讲义、Word/PDF；
-- 不想一页一页手动复制文字；
-- 想让 AI 帮你理解、提炼和排版；
-- 想得到方便打印批注的复习讲义版式。
-
-不适合：
-
-- 只想原样把 PPT 转成 PDF；
-- 课件基本全是扫描图片，且没有 OCR 或视觉模型辅助；
-- 需要 100% 保留 PPT 原始视觉设计；
-- 直接处理旧版 `.ppt` 二进制文件。
-
----
-
-## 给 Agent 的核心要求
-
-这个项目采用“调用方 AI 自己分析”的设计。
-
-也就是说：
-
-```text
-skill 负责：提取 PPTX/PPTM、生成中间文件、渲染 Word/PDF、打包、生成报告。
-调用它的 AI 负责：真正理解课件、判断资料顺序、合并知识点、提炼易考点、写复习讲义内容。
-```
-
-因此，Agent 不能只运行一条“自动 build”命令就结束。高质量结果应该走：
-
-```text
-extract → AI 阅读 compact.md / slides.json → AI 判断顺序与分组 → AI 写 handout.json → render
-```
-
-`render` 阶段只接受 `*.handout.json`，会拒绝把原始 `slides.json` 当作讲义渲染。
-
-详细执行规则写在 `SKILL.md` 中。
-
----
-
-## 手动安装与运行
-
-如果你不是通过 OpenClaw 调用，而是想自己本地跑：
+## Install
 
 ```bash
 pip install -e .
 ```
 
-提取课件：
+Development:
+
+```bash
+pip install -e . pytest
+pytest -q
+```
+
+---
+
+## Step 1: Extract
 
 ```bash
 ppt-review-handout extract \
   --input ./course_ppts \
-  --workspace ./workspace
+  --workspace ./workspace \
+  --config examples/sample_config.json
 ```
 
-如果课件在子目录中，可以加递归扫描：
+Recursive:
 
 ```bash
 ppt-review-handout extract \
@@ -183,20 +65,69 @@ ppt-review-handout extract \
   --recursive
 ```
 
-然后让 AI 阅读：
+Outputs:
 
 ```text
 workspace/extracted/*.compact.md
 workspace/extracted/*.slides.json
+workspace/report.md
+workspace/report.json
 ```
 
-并写入：
+`compact.md` is optimized for the calling LLM. `slides.json` preserves more structure.
 
-```text
-workspace/analysis/*.handout.json
+---
+
+## Step 2: Author handout JSON
+
+The calling LLM must read the extracted files and create `workspace/analysis/*.handout.json`.
+
+Required shape:
+
+```json
+{
+  "chapter_title": "Deck or topic title",
+  "source_file": "source.pptx",
+  "review_goals": [],
+  "knowledge_framework": [],
+  "core_points": {
+    "section title": ["caller-authored point"]
+  },
+  "terms": {
+    "term": "definition"
+  },
+  "comparison_tables": [
+    {
+      "title": "table title",
+      "headers": ["item", "A", "B"],
+      "rows": [["comparison item", "A content", "B content"]]
+    }
+  ],
+  "processes": {
+    "process name": ["step 1", "step 2"]
+  },
+  "exam_points": [],
+  "confusing_points": [],
+  "quick_summary": [],
+  "slide_count": 0,
+  "image_heavy_slides": []
+}
 ```
 
-最后渲染，默认就是推荐的批注式讲义版式：
+The schema is documented in `schemas/handout.schema.json`.
+
+Important constraints:
+
+- Do not mechanically copy every slide bullet.
+- Do not invent unsupported conclusions.
+- Convert real tables into semantic comparison tables.
+- Convert processes into ordered steps.
+- Mark visual-heavy slides for original-PPT or OCR/vision review.
+- Do not assume every file is a chapter; use the user request and extracted content to decide grouping.
+
+---
+
+## Step 3: Render
 
 ```bash
 ppt-review-handout render \
@@ -206,52 +137,71 @@ ppt-review-handout render \
   --zip-word
 ```
 
-如果需要普通满版讲义：
+Standard full-width layout:
 
 ```bash
 ppt-review-handout render \
   --analysis ./workspace/analysis \
   --output ./outputs \
-  --export-pdf \
-  --zip-word \
-  --layout standard
+  --layout standard \
+  --zip-word
 ```
 
-PDF 导出需要本机安装 LibreOffice 或 soffice。没有 PDF 环境时，Word 仍然可以生成，报告会写明原因。
+Outputs:
+
+```text
+outputs/docx/*.docx
+outputs/pdf/*.pdf
+outputs/word_zip/handouts_docx.zip
+outputs/report.md
+outputs/report.json
+```
+
+PDF export is best-effort. If LibreOffice/soffice is not installed, DOCX still renders and the report explains why PDF was skipped.
 
 ---
 
-## 示例与配置
+## Smoke-test fallback
 
-通用示例配置在：
-
-```text
-examples/sample_config.json
-```
-
-该配置不包含任何学校或课程专属清洗词。若你要为某一门课删除固定页眉/页脚，可另建自己的 config，并使用精确文本匹配；需要正则时使用 `re:` 前缀。
-
-仓库中可放置无版权 demo 素材到：
-
-```text
-examples/demo/
-docs/assets/
-```
-
-为了避免课件版权问题，公开仓库中通常不建议放原始老师 PPT；完整 Word/PDF 产物如果体积较大，也更适合放在 GitHub Release。
-
----
-
-## Development
+`build` is intentionally only a deterministic smoke-test path. It proves extraction and rendering work, but it is not a substitute for caller LLM analysis.
 
 ```bash
-pip install -e . pytest
-pytest -q
+ppt-review-handout build \
+  --input ./course_ppts \
+  --output ./outputs \
+  --keep-intermediate \
+  --zip-word
 ```
 
-CI 会运行单元测试和一个最小端到端链路测试：自动生成 PPTX，执行 `extract -> handout.json -> render -> zip`。
+Fallback output is marked with `generated_by_fallback=true` and warnings in the report/DOCX.
 
 ---
+
+## Configuration
+
+See `examples/sample_config.json` for generic defaults. You can configure:
+
+- `document_title_suffix`
+- `output_filename_suffix`
+- `zip_filename`
+- `note_column_label`
+- `body_font`
+- `heading_font`
+- `remove_patterns`
+- `max_table_rows_in_summary`
+- `max_text_items_per_slide`
+- `text_clip_limit`
+- `image_heavy_threshold`
+- `absolute_paths`
+- `sections`
+
+`remove_patterns` supports exact text and `re:` regular-expression patterns.
+
+---
+
+## Notes
+
+The installed console scripts now point to `ppt_review_handout.workflow_cli:main`. Older `cli.py` / `cli_v2.py` files may remain as compatibility references, but new development should target `workflow_cli.py`.
 
 ## License
 
