@@ -28,7 +28,7 @@ Legacy binary `.ppt` files are detected and reported, but must be converted to `
 - Optionally exports PDF via LibreOffice/soffice.
 - Writes `report.md` and `report.json` with warnings/errors.
 
-The previous China-university/final-exam wording is now only an example profile idea. Core code and default config are generic.
+The previous China-university/final-exam style now lives in `examples/zh_final_exam_config.json` as an optional profile. Core code and default config are generic.
 
 ---
 
@@ -147,6 +147,17 @@ ppt-review-handout render \
   --zip-word
 ```
 
+Chinese final-exam style profile:
+
+```bash
+ppt-review-handout render \
+  --analysis ./workspace/analysis \
+  --output ./outputs \
+  --config examples/zh_final_exam_config.json \
+  --export-pdf \
+  --zip-word
+```
+
 Outputs:
 
 ```text
@@ -179,7 +190,11 @@ Fallback output is marked with `generated_by_fallback=true` and warnings in the 
 
 ## Configuration
 
-See `examples/sample_config.json` for generic defaults. You can configure:
+See `examples/sample_config.json` for generic defaults.
+
+See `examples/zh_final_exam_config.json` when you want the original Chinese final-exam handout profile with Chinese section names, Chinese fonts, note-column label, and Chinese output suffixes.
+
+You can configure:
 
 - `document_title_suffix`
 - `output_filename_suffix`
@@ -201,7 +216,9 @@ See `examples/sample_config.json` for generic defaults. You can configure:
 
 ## Notes
 
-The installed console scripts now point to `ppt_review_handout.workflow_cli:main`. Older `cli.py` / `cli_v2.py` files may remain as compatibility references, but new development should target `workflow_cli.py`.
+The installed console scripts now point to `ppt_review_handout.cli_generic:main`. New development should target `workflow_cli.py` and `cli_generic.py`.
+
+Older `cli.py` / `cli_v2.py` files may remain as compatibility references until downstream imports migrate.
 
 ## License
 
